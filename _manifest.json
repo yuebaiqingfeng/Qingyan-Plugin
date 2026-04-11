@@ -1,0 +1,33 @@
+{
+  "manifest_version": 1,
+  "name": "清言群管插件 (Qingyan Plugin)",
+  "version": "1.0.0",
+  "description": "清言群管插件，提供智能群聊静音管控功能，所有回复均由模型自主生成",
+  "author": {
+    "name": "月白清风",
+    "url": ""
+  },
+  "license": "MIT",
+  "host_application": {
+    "min_version": "0.10.3"
+  },
+  "homepage_url": "",
+  "repository_url": "",
+  "keywords": [
+    "mute",
+    "ban",
+    "moderation",
+    "admin",
+    "management",
+    "group",
+    "qingyan"
+  ],
+  "categories": [
+    "Moderation",
+    "Group Management",
+    "Admin Tools"
+  ],
+  "default_locale": "zh-CN",
+  "locales_path": "_locales",
+  "id": "YueBaiQingFeng.Qingyan-Plugin"
+}

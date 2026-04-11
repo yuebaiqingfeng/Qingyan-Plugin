@@ -1,0 +1,11 @@
+# Python缓存文件
+__pycache__/
+*.py[cod]
+*$py.class
+
+# 本地配置文件
+config.toml
+
+# 日志文件
+logs/
+*.log
