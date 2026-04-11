@@ -208,9 +208,28 @@ class QingyanAction(BaseAction):
         # 处理@开头的用户名
         if target.startswith('@'):
             target = target[1:]
-        # 获取目标用户信息
-        person_id = person_api.get_person_id_by_name(target)
-        target_uid = await person_api.get_person_value(person_id, "user_id")
+
+        # 处理首尾的尖括号（如<用户名:QQ号>格式）
+        target = target.strip('<>')
+
+        # 处理全角冒号，统一转换为半角冒号，兼容不同的输入格式
+        target = target.replace('：', ':')
+
+        # 处理 "昵称:QQ号" 这种格式的目标用户，自动提取user_id
+        target_uid = None
+        # 检查是否包含冒号，且冒号后为纯数字（QQ号格式）
+        if ':' in target:
+            parts = target.split(':', 1)  # 只分割一次，避免昵称里有冒号的情况
+            if len(parts) == 2 and parts[1].strip().isdigit():
+                # 提取后面的数字作为user_id
+                target_uid = parts[1].strip()
+                logger.info(f"[人物] 从目标用户格式中提取到user_id: {target_uid}，原始target: {target}")
+
+        # 如果没有提取到user_id，再通过名字查找
+        if target_uid is None:
+            person_id = person_api.get_person_id_by_name(target)
+            target_uid = await person_api.get_person_value(person_id, "user_id")
+
         target_person = Person(platform=self.platform, user_id=target_uid)
         target_person_name = target_person.person_name
         # 目标用户不存在校验
@@ -372,6 +391,23 @@ class QingyanCommand(BaseCommand):
             reason = self.matched_groups.get("reason", "管理员操作")
             if target.startswith('@'):
                 target = target[1:]
+
+            # 处理首尾的尖括号（如<用户名:QQ号>格式）
+            target = target.strip('<>')
+
+            # 处理全角冒号，统一转换为半角冒号，兼容不同的输入格式
+            target = target.replace('：', ':')
+
+            # 处理 "昵称:QQ号" 这种格式的目标用户，自动提取user_id
+            target_uid = None
+            # 检查是否包含冒号，且冒号后为纯数字（QQ号格式）
+            if ':' in target:
+                parts = target.split(':', 1)  # 只分割一次，避免昵称里有冒号的情况
+                if len(parts) == 2 and parts[1].strip().isdigit():
+                    # 提取后面的数字作为user_id
+                    target_uid = parts[1].strip()
+                    logger.info(f"[人物] 从命令目标用户格式中提取到user_id: {target_uid}，原始target: {target}")
+
             # 参数完整性校验
             if not all([target, duration]):
                 await self._rewrite_and_send_reply(
@@ -401,8 +437,9 @@ class QingyanCommand(BaseCommand):
                 )
                 return False, "时长格式错误", ""
             # 目标用户信息获取
-            person_id = person_api.get_person_id_by_name(target)
-            target_uid = await person_api.get_person_value(person_id, "user_id")
+            if target_uid is None:
+                person_id = person_api.get_person_id_by_name(target)
+                target_uid = await person_api.get_person_value(person_id, "user_id")
             if not target_uid or target_uid == "unknown":
                 await self._rewrite_and_send_reply(
                     raw_reply=f"我找不到用户 {target} 哦，无法执行禁言",
@@ -482,17 +519,17 @@ class QingyanPlugin(BasePlugin):
             "admin_users": ConfigField(
                 type=list,
                 default=[],
-                description="无法被禁言的超级管理员列表，格式：['plat:uid']，如['qq:123456789']",
+                description="无法被禁言的超级管理员列表，格式：[plat:uid]，如[qq:123456789]",
             ),
             "allowed_users": ConfigField(
                 type=list,
                 default=[],
-                description="有权限执行禁言操作的管理员列表，格式：['plat:uid']，如['qq:123456789']",
+                description="有权限执行禁言操作的管理员列表，格式：[plat:uid]，如[qq:123456789]",
             ),
             "allowed_groups": ConfigField(
                 type=list,
                 default=[],
-                description="允许使用禁言功能的群组列表，格式：['plat:gid']，如['qq:987654321']",
+                description="允许使用禁言功能的群组列表，格式：[plat:gid]，如[qq:123456789]",
             ),
         },
         "qingyan": {
