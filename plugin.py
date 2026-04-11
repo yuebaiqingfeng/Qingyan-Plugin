@@ -250,6 +250,18 @@ class QingyanAction(BaseAction):
         # ========== 第六层：执行结果处理 ==========
         # 禁言成功场景
         if ban_success:
+            # 禁言成功后，尝试撤回触发禁言的违规消息
+            try:
+                recall_success = await self.send_command(
+                    command_name="DELETE_MSG",
+                    args={"message_id": self.action_message.message_id},
+                    display_message=f"撤回了违规消息"
+                )
+                if recall_success:
+                    logger.info(f"{self.log_prefix} 成功撤回违规消息，message_id: {self.action_message.message_id}")
+            except Exception as e:
+                logger.error(f"{self.log_prefix} 撤回违规消息失败: {str(e)}")
+                
             logger.info(f"{self.log_prefix} 禁言命令执行成功，用户 {target_person_name}({target_uid})，时长 {duration_int} 秒")
             # 格式化时长用于回复
             time_str = self._format_duration(duration_int)
