@@ -13,7 +13,6 @@
 - 禁言命令Command - 手动执行禁言操作（支持用户权限控制）
 """
 from typing import List, Tuple, Type, Optional
-import random
 # 导入新插件系统
 from src.plugin_system.apis.plugin_register_api import register_plugin
 from src.plugin_system.base.base_plugin import BasePlugin
@@ -59,17 +58,6 @@ class QingyanAction(BaseAction):
                 return True, f"用户 {current_user_key} 是插件超级管理员，无法被禁言"
         return False, None
         
-    def _check_qq_group_admin(self) -> bool:
-        """检查目标用户是否为QQ群平台管理员/群主"""
-        if not self.is_group:
-            return False
-        user_info = self.action_message.user_info
-        if hasattr(user_info, 'role'):
-            role = getattr(user_info, 'role', None)
-            if role in ['admin', 'owner']:
-                logger.info(f"{self.log_prefix} 用户 {self.user_nickname} 是QQ群管理员/群主")
-                return True
-        return False
     def _check_group_permission(self) -> Tuple[bool, Optional[str]]:
         """检查当前群组是否有禁言动作权限"""
         if not self.is_group:
@@ -223,23 +211,7 @@ class QingyanAction(BaseAction):
                 action_done=False,
             )
             return False, super_admin_msg
-        # 校验目标是否为QQ群管理员/群主，50%概率拦截
-        is_group_admin = self._check_qq_group_admin()
-        if is_group_admin:
-            if random.random() < 0.5:
-                await self._rewrite_and_send_reply(
-                    raw_reply="这个用户是群管理员，我不能禁言他哦",
-                    reason="告知用户目标用户是群管理员，拥有禁言豁免权限，无法执行禁言"
-                )
-                await self.store_action_info(
-                    action_build_into_prompt=True,
-                    action_prompt_display=f"尝试禁言用户 {target_person_name}，因该用户是群管理员被拦截",
-                    action_done=False,
-                )
-                return False, "目标用户为群管理员，无法执行禁言"
-            else:
-                reason = f"强制封禁群管理员，原因为：{reason}"
-                logger.info(f"{self.log_prefix} 触发强制封禁，目标为群管理员 {target_person_name}")
+
         # ========== 第五层：执行禁言命令 ==========
         logger.info(f"{self.log_prefix} 开始发送禁言命令，目标用户 {target_person_name}({target_uid})，时长 {duration_int} 秒")
         ban_success = await self.send_command(
