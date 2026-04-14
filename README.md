@@ -54,6 +54,9 @@
 | `max_duration` | 单次禁言最长时长限制 | 秒 | 2592000（30天） | 高于该值的时长，系统将自动修正为最大值 |
 
 ## 版本信息
-- 插件版本：v1.0.0
+- 插件版本：v1.1.1
 - 插件作者：月白清风
 - 适配版本：适配 0.10.3 及以上版本框架
+
+## 参考项目
+- **MutePlugin**：[https://github.com/SengokuCola/MutePlugin](https://github.com/SengokuCola/MutePlugin)，使用 MIT 协议

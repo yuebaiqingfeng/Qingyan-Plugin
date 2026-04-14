@@ -11,9 +11,10 @@
 包含组件：
 - 智能禁言Action - 基于LLM判断是否需要禁言（支持群组权限控制）
 - 禁言命令Command - 手动执行禁言操作（支持用户权限控制）
+参考项目：
+- MutePlugin: https://github.com/SengokuCola/MutePlugin (MIT License)
 """
 from typing import List, Tuple, Type, Optional
-import random
 # 导入新插件系统
 from src.plugin_system.apis.plugin_register_api import register_plugin
 from src.plugin_system.base.base_plugin import BasePlugin
@@ -59,17 +60,6 @@ class QingyanAction(BaseAction):
                 return True, f"用户 {current_user_key} 是插件超级管理员，无法被禁言"
         return False, None
         
-    def _check_qq_group_admin(self) -> bool:
-        """检查目标用户是否为QQ群平台管理员/群主"""
-        if not self.is_group:
-            return False
-        user_info = self.action_message.user_info
-        if hasattr(user_info, 'role'):
-            role = getattr(user_info, 'role', None)
-            if role in ['admin', 'owner']:
-                logger.info(f"{self.log_prefix} 用户 {self.user_nickname} 是QQ群管理员/群主")
-                return True
-        return False
     def _check_group_permission(self) -> Tuple[bool, Optional[str]]:
         """检查当前群组是否有禁言动作权限"""
         if not self.is_group:
@@ -85,28 +75,7 @@ class QingyanAction(BaseAction):
                 return True, None
         logger.warning(f"{self.log_prefix} 群组 {current_group_key} 没有禁言动作权限")
         return False, "当前群组没有使用禁言动作的权限"
-    def _check_operator_permission(self) -> Tuple[bool, str]:
-        """【核心权限校验】检查发起禁言的操作者是否有禁言他人的权限"""
-        try:
-            current_plat = self.platform
-            current_uid = str(self.user_id)
-            allowed_users = self.get_config("permissions.allowed_users", [])
-            current_user_key = f"{current_plat}:{current_uid}"
-            logger.info(f"[权限审计] 操作者: {current_user_key} | 授权管理员列表: {allowed_users}")
-            # 未配置授权管理员，禁止所有人手动禁言他人
-            if not allowed_users:
-                logger.warning(f"[权限拦截] 未配置授权管理员，禁止所有手动禁言他人操作")
-                return False, "未配置授权管理员，无法执行禁言他人操作"
-            # 操作者在授权列表内，权限通过
-            if current_user_key in allowed_users:
-                logger.info(f"[权限通过] 操作者 {current_user_key} 为授权管理员，允许执行禁言操作")
-                return True, "权限校验通过"
-            # 无权限拦截
-            logger.warning(f"[权限拦截] 用户 {current_user_key} 无禁言他人的授权权限")
-            return False, "你没有权限让我执行禁言他人的操作"
-        except Exception as e:
-            logger.error(f"[权限校验异常] {str(e)}")
-            return False, "权限校验过程发生异常，无法执行禁言操作"
+
     async def _rewrite_and_send_reply(self, raw_reply: str, reason: str):
         """统一封装：LLM重写回复并发送，失败则降级发送原始回复"""
         try:
@@ -128,21 +97,7 @@ class QingyanAction(BaseAction):
     async def execute(self) -> Tuple[bool, Optional[str]]:
         """禁言动作主执行逻辑"""
         logger.info(f"{self.log_prefix} 开始执行智能禁言动作")
-        # ========== 第一层：操作者权限强制校验 ==========
-        has_operator_perm, perm_msg = self._check_operator_permission()
-        if not has_operator_perm:
-            # 无权限回复交由LLM重写
-            await self._rewrite_and_send_reply(
-                raw_reply="你没有权限让我禁言其他人哦",
-                reason=f"告知用户没有禁言他人的权限，无法执行本次操作，原因：{perm_msg}"
-            )
-            await self.store_action_info(
-                action_build_into_prompt=True,
-                action_prompt_display=f"用户 {self.user_nickname} 尝试执行禁言操作，因无权限被拦截",
-                action_done=False,
-            )
-            return False, perm_msg
-        # ========== 第二层：群组权限校验 ==========
+        # ========== 群组权限校验 ==========
         has_group_perm, group_perm_msg = self._check_group_permission()
         if not has_group_perm:
             # 群组无权限回复交由LLM重写
@@ -225,6 +180,9 @@ class QingyanAction(BaseAction):
                 target_uid = parts[1].strip()
                 logger.info(f"[人物] 从目标用户格式中提取到user_id: {target_uid}，原始target: {target}")
 
+        # 提取显示用的昵称，去掉后面的QQ号部分，用于回复展示
+        target_name = target.split(':', 1)[0].strip()
+
         # 如果没有提取到user_id，再通过名字查找
         if target_uid is None:
             person_id = person_api.get_person_id_by_name(target)
@@ -255,23 +213,7 @@ class QingyanAction(BaseAction):
                 action_done=False,
             )
             return False, super_admin_msg
-        # 校验目标是否为QQ群管理员/群主，50%概率拦截
-        is_group_admin = self._check_qq_group_admin()
-        if is_group_admin:
-            if random.random() < 0.5:
-                await self._rewrite_and_send_reply(
-                    raw_reply="这个用户是群管理员，我不能禁言他哦",
-                    reason="告知用户目标用户是群管理员，拥有禁言豁免权限，无法执行禁言"
-                )
-                await self.store_action_info(
-                    action_build_into_prompt=True,
-                    action_prompt_display=f"尝试禁言用户 {target_person_name}，因该用户是群管理员被拦截",
-                    action_done=False,
-                )
-                return False, "目标用户为群管理员，无法执行禁言"
-            else:
-                reason = f"强制封禁群管理员，原因为：{reason}"
-                logger.info(f"{self.log_prefix} 触发强制封禁，目标为群管理员 {target_person_name}")
+
         # ========== 第五层：执行禁言命令 ==========
         logger.info(f"{self.log_prefix} 开始发送禁言命令，目标用户 {target_person_name}({target_uid})，时长 {duration_int} 秒")
         ban_success = await self.send_command(
@@ -282,18 +224,30 @@ class QingyanAction(BaseAction):
         # ========== 第六层：执行结果处理 ==========
         # 禁言成功场景
         if ban_success:
+            # 禁言成功后，尝试撤回触发禁言的违规消息
+            try:
+                recall_success = await self.send_command(
+                    command_name="DELETE_MSG",
+                    args={"message_id": self.action_message.message_id},
+                    display_message=f"撤回了违规消息"
+                )
+                if recall_success:
+                    logger.info(f"{self.log_prefix} 成功撤回违规消息，message_id: {self.action_message.message_id}")
+            except Exception as e:
+                logger.error(f"{self.log_prefix} 撤回违规消息失败: {str(e)}")
+                
             logger.info(f"{self.log_prefix} 禁言命令执行成功，用户 {target_person_name}({target_uid})，时长 {duration_int} 秒")
             # 格式化时长用于回复
             time_str = self._format_duration(duration_int)
             # 移除固定模板，由模型自主生成回复
             await self._rewrite_and_send_reply(
                 raw_reply="",
-                reason=f"告知用户，已成功对用户{target_person_name}执行禁言操作，禁言时长为{time_str}，本次禁言的原因是：{reason}。你可以自由决定回复的内容与语气，无需使用固定模板，完全由你自主生成符合当前场景的回复。"
+                reason=f"告知用户，已成功对用户{target_name}执行禁言操作，禁言时长为{time_str}，本次禁言的原因是：{reason}。你可以自由决定回复的内容与语气，无需使用固定模板，完全由你自主生成符合当前场景的回复。"
             )
             # 记录成功动作
             await self.store_action_info(
                 action_build_into_prompt=True,
-                action_prompt_display=f"成功禁言用户 {target_person_name}，时长 {time_str}，原因：{reason}",
+                action_prompt_display=f"成功禁言用户 {target_name}，时长 {time_str}，原因：{reason}",
                 action_done=True,
             )
             return True, f"成功禁言 {target_person_name}，时长 {time_str}"
@@ -408,6 +362,9 @@ class QingyanCommand(BaseCommand):
                     target_uid = parts[1].strip()
                     logger.info(f"[人物] 从命令目标用户格式中提取到user_id: {target_uid}，原始target: {target}")
 
+            # 提取显示用的昵称，去掉后面的QQ号部分，用于回复展示
+            target_name = target.split(':', 1)[0].strip()
+
             # 参数完整性校验
             if not all([target, duration]):
                 await self._rewrite_and_send_reply(
@@ -469,13 +426,13 @@ class QingyanCommand(BaseCommand):
             ban_success = await self.send_command(
                 command_name="GROUP_BAN",
                 args={"qq_id": str(target_uid), "duration": str(duration_int)},
-                display_message=f"禁言了 {target} {time_str}"
+                display_message=f"禁言了 {target_name} {time_str}"
             )
             # 结果处理
             if ban_success:
                 await self._rewrite_and_send_reply(
                     raw_reply="",
-                    reason=f"告知用户，已成功对用户{target}执行禁言操作，禁言时长为{time_str}，本次禁言的原因是：{reason}。你可以自由决定回复的内容与语气，无需使用固定模板，完全由你自主生成符合当前场景的回复。"
+                    reason=f"告知用户，已成功对用户{target_name}执行禁言操作，禁言时长为{time_str}，本次禁言的原因是：{reason}。你可以自由决定回复的内容与语气，无需使用固定模板，完全由你自主生成符合当前场景的回复。"
                 )
                 return True, f"成功禁言 {target}，时长 {time_str}", ""
             else:
@@ -519,17 +476,17 @@ class QingyanPlugin(BasePlugin):
             "admin_users": ConfigField(
                 type=list,
                 default=[],
-                description="无法被禁言的超级管理员列表，格式：[plat:uid]，如[qq:123456789]",
+                description="无法被禁言的超级管理员列表，格式：['plat:uid']，如['qq:123456789']",
             ),
             "allowed_users": ConfigField(
                 type=list,
                 default=[],
-                description="有权限执行禁言操作的管理员列表，格式：[plat:uid]，如[qq:123456789]",
+                description="有权限执行禁言操作的管理员列表，格式：['plat:uid']，如['qq:123456789']",
             ),
             "allowed_groups": ConfigField(
                 type=list,
                 default=[],
-                description="允许使用禁言功能的群组列表，格式：[plat:gid]，如[qq:123456789]",
+                description="允许使用禁言功能的群组列表，格式：['plat:gid']，如['qq:987654321']",
             ),
         },
         "qingyan": {
